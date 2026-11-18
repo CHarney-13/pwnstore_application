@@ -1,0 +1,74 @@
+{
+  "name": "pwnstore-application",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "main": "dist/main/main.cjs",
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "dev": "vite --host 127.0.0.1",
+    "build": "tsc --noEmit && vite build && vite build --config vite.main.config.ts",
+    "start": "electron .",
+    "dist": "npm run build && electron-builder",
+    "test": "npm run test:unit && npm run test:integration",
+    "test:unit": "vitest run --config vitest.config.ts tests/unit",
+    "test:integration": "vitest run --config vitest.config.ts tests/integration",
+    "test:e2e": "npm run build && playwright test"
+  },
+  "dependencies": {
+    "better-sqlite3": "^11.8.1",
+    "dockerode": "^4.0.7",
+    "fast-xml-parser": "^4.5.3",
+    "react": "^19.0.0",
+    "react-dom": "^19.0.0"
+  },
+  "devDependencies": {
+    "@playwright/test": "^1.51.1",
+    "@types/better-sqlite3": "^7.6.12",
+    "@types/dockerode": "^3.3.35",
+    "@types/node": "^22.13.10",
+    "@types/react": "^19.0.10",
+    "@types/react-dom": "^19.0.4",
+    "@vitejs/plugin-react": "^4.3.4",
+    "electron": "^34.3.3",
+    "electron-builder": "^25.1.8",
+    "playwright": "^1.51.1",
+    "typescript": "^5.7.3",
+    "vite": "^6.2.2",
+    "vitest": "^2.1.9"
+  },
+  "build": {
+    "appId": "org.pwnstore.desktop",
+    "productName": "Pwnstore",
+    "files": [
+      "dist/**/*",
+      "package.json"
+    ],
+    "directories": {
+      "output": "release"
+    },
+    "win": {
+      "target": [
+        "nsis",
+        "msi"
+      ]
+    },
+    "linux": {
+      "target": [
+        "AppImage",
+        "deb"
+      ]
+    }
+  },
+  "allowScripts": {
+    "electron@34.5.8": true,
+    "better-sqlite3@11.10.0": true,
+    "cpu-features@0.0.10": true,
+    "esbuild@0.25.12": true,
+    "esbuild@0.21.5": true,
+    "protobufjs@7.6.6": true,
+    "ssh2@1.17.0": true
+  }
+}

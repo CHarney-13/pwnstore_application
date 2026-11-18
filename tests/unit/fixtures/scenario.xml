@@ -1,0 +1,9 @@
+<scenario id="scenario-42" name="Intro to SQL Injection">
+  <description>A local web application with an injectable query.</description>
+  <vulnerabilities>
+    <vulnerability name="SQL injection" />
+  </vulnerabilities>
+  <services>
+    <service name="HTTP" />
+  </services>
+</scenario>

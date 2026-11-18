@@ -77,6 +77,10 @@ web_modules/
 # Next.js build output
 .next
 out
+dist/
+release/
+playwright-report/
+test-results/
 
 # Nuxt.js build / generate output
 .nuxt

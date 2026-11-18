@@ -56,6 +56,23 @@ describe('DockerLlmService', () => {
     });
   });
 
+  it('reports health for offline Docker, stopped LLM, and running LLM', async () => {
+    const { docker } = createDockerMock();
+    const service = new DockerLlmService({ docker: docker as unknown as Docker });
+
+    docker.ping.mockRejectedValueOnce(new Error('no daemon'));
+    expect(await service.checkHealth()).toEqual({ dockerConnected: false, llmRunning: false });
+
+    docker.listContainers.mockResolvedValueOnce([]);
+    expect(await service.checkHealth()).toEqual({ dockerConnected: true, llmRunning: false });
+
+    docker.listContainers.mockResolvedValueOnce([{ Names: ['/pwnstore-ollama'] }]);
+    expect(await service.checkHealth()).toEqual({ dockerConnected: true, llmRunning: true });
+
+    docker.listContainers.mockRejectedValueOnce(new Error('x'));
+    expect(await service.checkHealth()).toEqual({ dockerConnected: true, llmRunning: false });
+  });
+
   it('pulls the image, creates persistent storage, and binds only to loopback', async () => {
     const { docker, start } = createDockerMock();
     const service = new DockerLlmService({ docker: docker as unknown as Docker });

@@ -108,6 +108,25 @@ export class DockerLlmService {
     return this.status(container.id);
   }
 
+  async checkHealth(): Promise<{ dockerConnected: boolean; llmRunning: boolean }> {
+    try {
+      await this.docker.ping();
+    } catch {
+      return { dockerConnected: false, llmRunning: false };
+    }
+    try {
+      const containers = await this.docker.listContainers({
+        filters: { name: [CONTAINER_NAME], status: ['running'] },
+      });
+      return {
+        dockerConnected: true,
+        llmRunning: containers.some((c) => c.Names?.includes(`/${CONTAINER_NAME}`)),
+      };
+    } catch {
+      return { dockerConnected: true, llmRunning: false };
+    }
+  }
+
   async queryAiHelper(
     studentQuestion: string,
     currentSecGenScenarioContext: SecGenScenarioContext,

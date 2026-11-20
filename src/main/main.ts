@@ -3,6 +3,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 import { registerIpcHandlers } from './ipcHandlers';
+import { isLoopbackLabUrl } from './externalLinks';
 import { SCENARIO_CATALOG } from './scenarioCatalog';
 import { DockerLlmService } from './services/dockerLlmService';
 import { ProgressService } from './services/progressService';
@@ -24,7 +25,9 @@ function createWindow(): BrowserWindow {
 
   // Only loopback lab targets may be opened externally.
   window.webContents.setWindowOpenHandler(({ url }) => {
-    if (url.startsWith('http://127.0.0.1:')) void shell.openExternal(url);
+    if (isLoopbackLabUrl(url)) {
+      void shell.openExternal(url).catch((error: unknown) => console.error('Failed to open lab URL:', error));
+    }
     return { action: 'deny' };
   });
 

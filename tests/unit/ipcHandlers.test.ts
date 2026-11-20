@@ -90,6 +90,19 @@ describe('registerIpcHandlers', () => {
     expect((await firstLaunch).ok).toBe(true);
   });
 
+  it('rejects launches and duplicate stops while cleanup is pending', async () => {
+    await call(IPC_CHANNELS.launchScenario, id);
+    let finish!: () => void;
+    secgen.stopTargetLab.mockImplementationOnce(() => new Promise<void>((resolve) => { finish = resolve; }));
+    const stop = call(IPC_CHANNELS.stopScenario, id);
+    await vi.waitFor(() => expect(secgen.stopTargetLab).toHaveBeenCalledOnce());
+    expect((await call(IPC_CHANNELS.launchScenario, id)).ok).toBe(false);
+    expect((await call(IPC_CHANNELS.stopScenario, id)).ok).toBe(false);
+    finish();
+    expect((await stop).ok).toBe(true);
+    expect((await call(IPC_CHANNELS.launchScenario, id)).ok).toBe(true);
+  });
+
   it('cleans failed provisioning and permits a later launch', async () => {
     secgen.startTargetLab.mockRejectedValueOnce(new Error('provision failed'));
     expect((await call(IPC_CHANNELS.launchScenario, id)).ok).toBe(false);

@@ -1,6 +1,6 @@
 import { render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import { ActiveLabWorkspace } from '../../src/renderer/components/ActiveLabWorkspace';
 import { makeApi, scenarios } from './helpers';
 
@@ -13,6 +13,14 @@ function setup(onExit = vi.fn(), ready = true, onRefreshHealth = vi.fn().mockRes
 }
 
 describe('ActiveLabWorkspace', () => {
+  beforeAll(() => {
+    Object.defineProperty(HTMLDialogElement.prototype, 'showModal', {
+      configurable: true, value() { this.setAttribute('open', ''); },
+    });
+    Object.defineProperty(HTMLDialogElement.prototype, 'close', {
+      configurable: true, value() { this.removeAttribute('open'); },
+    });
+  });
   beforeEach(() => {
     window.pwnshopApi = makeApi();
   });

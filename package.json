@@ -9,8 +9,9 @@
   },
   "scripts": {
     "dev": "vite --host 127.0.0.1",
-    "build": "tsc --noEmit && vite build && vite build --config vite.main.config.ts",
+    "build": "tsc --noEmit && vite build && vite build --config vite.main.config.ts && vite build --config vite.preload.config.ts",
     "start": "electron .",
+    "setup:model": "node scripts/setup-model.mjs",
     "dist": "npm run build && electron-builder",
     "test": "npm run test:unit && npm run test:integration",
     "test:unit": "vitest run --config vitest.config.ts tests/unit",

@@ -44,6 +44,10 @@ function details(error: unknown): string {
   return [error.stack ?? error.message, commandError.stdout, commandError.stderr].filter(Boolean).join('\n');
 }
 
+function normalizeModelName(name: string): string {
+  return name.toLowerCase().replace(/^hf\.co\//, 'huggingface.co/');
+}
+
 export class DockerLlmService {
   private readonly docker: Pick<Docker, 'ping'>;
   private readonly fetchImpl: (input: string, init?: RequestInit) => Promise<Response>;
@@ -98,10 +102,10 @@ export class DockerLlmService {
         if (!parsed || typeof parsed !== 'object' || !('data' in parsed) || !Array.isArray(parsed.data)) {
           throw new Error('Unexpected docker model list output.');
         }
-        const modelName = this.model.toLowerCase();
+        const modelName = normalizeModelName(this.model);
         const installed = parsed.data.find((item: unknown) => {
           if (typeof item !== 'object' || item === null || !('id' in item) || typeof item.id !== 'string') return false;
-          const id = item.id.toLowerCase();
+          const id = normalizeModelName(item.id);
           return id === modelName || id.startsWith(`${modelName}:`);
         }) as { id: string } | undefined;
         if (!installed) {

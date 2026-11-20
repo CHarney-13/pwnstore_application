@@ -8,7 +8,6 @@ export default defineConfig({
     rollupOptions: {
       input: {
         main: 'src/main/main.ts',
-        preload: 'src/preload.ts',
       },
       external: ['electron'],
       output: {

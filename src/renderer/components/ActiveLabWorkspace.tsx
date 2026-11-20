@@ -31,7 +31,9 @@ export function ActiveLabWorkspace({ scenario, launch, onExit, health, onRefresh
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [question, setQuestion] = useState('');
   const [asking, setAsking] = useState(false);
+  const [chatOpen, setChatOpen] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
 
   const addLog = (line: string): void => setLogs((prev) => [...prev, line]);
 
@@ -196,5 +198,7 @@ export function ActiveLabWorkspace({ scenario, launch, onExit, health, onRefresh
 
       {showModal && <ConfidenceModal onSave={saveRating} />}
     </div>
-  );
+  
+
+  )
 }

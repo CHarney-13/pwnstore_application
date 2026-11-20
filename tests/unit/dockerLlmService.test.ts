@@ -88,6 +88,24 @@ describe('Docker Model Runner', () => {
     expect(mocks.fetchImpl.mock.calls[1][1]?.body).toContain(`${model}:Q4_K_M`);
   });
 
+  it('recognizes the canonical Hugging Face model name returned by Docker Model Runner', async () => {
+    const mocks = setup();
+    const installedModel = 'huggingface.co/qwen/qwen2.5-coder-1.5b-instruct-gguf:latest';
+    mocks.command.mockImplementation(async (args) => args[1] === 'list'
+      ? JSON.stringify({ data: [{ id: installedModel }] }) : 'running');
+    const service = new DockerLlmService(mocks);
+    expect((await service.checkHealth()).llmRunning).toBe(true);
+    await service.queryAiHelper('Help', context);
+    expect(JSON.parse(String(mocks.fetchImpl.mock.calls[1][1]?.body)).model).toBe(installedModel);
+  });
+
+  it('does not match another Hugging Face model with a similar name', async () => {
+    const mocks = setup();
+    mocks.command.mockImplementation(async (args) => args[1] === 'list'
+      ? JSON.stringify({ data: [{ id: 'huggingface.co/qwen/qwen2.5-coder-1.5b-instruct-gguf-other:latest' }] }) : 'running');
+    expect((await new DockerLlmService(mocks).checkHealth()).modelAvailable).toBe(false);
+  });
+
   it('sends an OpenAI request without flag values', async () => {
     const mocks = setup();
     const service = new DockerLlmService(mocks);

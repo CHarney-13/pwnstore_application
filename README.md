@@ -26,8 +26,7 @@ Only one lab can run at a time. Stop it before launching another. If provisionin
 
 ## SecGen setup and inisalisation
 
-run: $env:SECGEN_DIR = (Resolve-Path .\SecGen\SecGen-master).Path
-     npm start
+run: `$env:SECGEN_DIR = (Resolve-Path .\SecGen\SecGen-master).Path` then `npm start`
 this will point to application in the direction of the SecGen files. 
 
 ## Legal & Ethical Use Disclaimer

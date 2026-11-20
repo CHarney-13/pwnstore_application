@@ -12,6 +12,7 @@
     "build": "tsc --noEmit && vite build && vite build --config vite.main.config.ts && vite build --config vite.preload.config.ts",
     "start": "electron .",
     "setup:model": "node scripts/setup-model.mjs",
+    "build:demo-lab": "docker build -t pwnshop-demo-sqli:latest ./labs/demo-sqli",
     "dist": "npm run build && electron-builder",
     "test": "npm run test:unit && npm run test:integration",
     "test:unit": "vitest run --config vitest.config.ts tests/unit",

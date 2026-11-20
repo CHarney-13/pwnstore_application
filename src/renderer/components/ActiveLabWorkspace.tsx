@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import type { LaunchResult, ScenarioSummary, SystemHealth } from '../../shared/ipcTypes';
 import { ConfidenceModal } from './ConfidenceModal';
 
@@ -27,12 +27,26 @@ export function ActiveLabWorkspace({ scenario, launch, onExit, health, onRefresh
   const [feedback, setFeedback] = useState<{ ok: boolean; text: string } | null>(null);
   const [showModal, setShowModal] = useState(false);
   const [logs, setLogs] = useState<string[]>([`Lab started at ${launch.url}`]);
+  const [containerLogs, setContainerLogs] = useState<string[]>([]);
   const [logsOpen, setLogsOpen] = useState(false);
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [question, setQuestion] = useState('');
   const [asking, setAsking] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [logError, setLogError] = useState<string | null>(null);
 
+  useEffect(() => {
+    let active = true;
+    const refresh = (): void => {
+      api.getLabLogs(scenario.id).then(
+        (lines) => { if (active) { setContainerLogs(lines); setLogError(null); } },
+        (failure: unknown) => { if (active) setLogError(`Could not read lab logs: ${errorMessage(failure)}`); },
+      );
+    };
+    refresh();
+    const timer = setInterval(refresh, 1000);
+    return () => { active = false; clearInterval(timer); };
+  }, [api, scenario.id]);
 
   const addLog = (line: string): void => setLogs((prev) => [...prev, line]);
 
@@ -104,6 +118,7 @@ export function ActiveLabWorkspace({ scenario, launch, onExit, health, onRefresh
           </button>
         </div>
         {error && <p role="alert" className="text-sm text-red-700">{error}</p>}
+        {logError && <p role="alert" className="text-sm text-red-700">{logError}</p>}
 
         <article className="space-y-2 rounded-2xl border border-brand-lavender bg-surface-white p-5">
           <p className="eyebrow">Active lab</p>
@@ -142,7 +157,7 @@ export function ActiveLabWorkspace({ scenario, launch, onExit, health, onRefresh
           </button>
           {logsOpen && (
             <pre aria-label="Lab logs" className="max-h-40 overflow-auto px-4 pb-3 whitespace-pre-wrap">
-              {logs.join('\n')}
+              {[...logs, ...containerLogs].join('\n')}
             </pre>
           )}
         </div>

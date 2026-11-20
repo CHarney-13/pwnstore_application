@@ -34,6 +34,7 @@ export function getDockerSocketPath(platform: NodeJS.Platform): string {
 function cleanStudentText(value: string): string {
   return value
     .replace(/<(?:flag|secret|answer)\b[^>]*>[\s\S]*?<\/(?:flag|secret|answer)>/gi, '[redacted]')
+    .replace(/\bPWNSHOP\s*\{[^}\r\n]*\}/gi, '[redacted]')
     .replace(/\b(?:flag|ctf)\s*[{=:]\s*[^}\r\n]+}?/gi, '[redacted]')
     .slice(0, 4_000);
 }
@@ -148,6 +149,7 @@ export class DockerLlmService {
       description: cleanStudentText(context.description),
       vulnerabilities: context.vulnerabilities.map(cleanStudentText),
       services: context.services.map(cleanStudentText),
+      hints: context.hints?.map(cleanStudentText),
     };
     const systemPrompt = [
       'You are a cybersecurity education tutor for an authorized, isolated local lab.',

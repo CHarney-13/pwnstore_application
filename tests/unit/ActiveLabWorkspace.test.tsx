@@ -81,6 +81,13 @@ describe('ActiveLabWorkspace', () => {
     expect(screen.getByLabelText('Lab logs')).toHaveTextContent('Lab started');
   });
 
+  it('displays the live container logs in the drawer', async () => {
+    window.pwnshopApi = makeApi({ getLabLogs: vi.fn().mockResolvedValue(['POST /login rejected']) });
+    const { user } = setup();
+    await user.click(screen.getByRole('button', { name: /Container & HTTP logs/ }));
+    expect(await screen.findByText(/POST \/login rejected/)).toBeInTheDocument();
+  });
+
   it('stops the lab and exits', async () => {
     const { user, onExit } = setup();
     await user.click(screen.getByRole('button', { name: 'Stop Lab' }));

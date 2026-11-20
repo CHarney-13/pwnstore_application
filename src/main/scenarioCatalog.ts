@@ -33,6 +33,18 @@ function entry(
 }
 
 export const SCENARIO_CATALOG: CatalogEntry[] = [
+  {
+    ...entry('demo-sqli-01', 'Demo: SQL Injection', 'Beginner', 'SQL injection',
+      'Explore a vulnerable storefront login and recover the demo flag.', 0),
+    context: {
+      id: 'demo-sqli-01',
+      name: 'Demo: SQL Injection',
+      description: 'A storefront login concatenates user input into a SQL query.',
+      vulnerabilities: ['SQL injection'],
+      services: ['HTTP', 'SQLite'],
+      hints: ['Consider how a quote changes a SQL string literal.', 'Inspect SQL errors and think about how Boolean conditions affect authentication.'],
+    },
+  },
   entry('sqli-login-bypass', 'Login Bypass', 'Beginner', 'SQL injection',
     'A storefront login form builds its query from raw input. Find out how to get past authentication and recover the flag.', 18081),
   entry('idor-order-viewer', 'Order Viewer', 'Beginner', 'IDOR',

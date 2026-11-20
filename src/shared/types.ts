@@ -4,6 +4,7 @@ export interface SecGenScenarioContext {
   description: string;
   vulnerabilities: string[];
   services: string[];
+  hints?: string[];
 }
 
 export interface SecGenScenario extends SecGenScenarioContext {

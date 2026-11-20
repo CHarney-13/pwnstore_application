@@ -9,7 +9,7 @@ import { IPC_CHANNELS, type IpcResponse } from '../../src/shared/ipcTypes';
 
 type Handler = (event: unknown, ...args: unknown[]) => Promise<IpcResponse<any>>;
 
-const first = SCENARIO_CATALOG[0];
+const first = SCENARIO_CATALOG[1];
 const id = first.context.id;
 
 describe('registerIpcHandlers', () => {
@@ -17,6 +17,7 @@ describe('registerIpcHandlers', () => {
   let handlers: Map<string, Handler>;
   let secgen: any;
   let llm: any;
+  let demoLab: any;
   let progress: ProgressService;
 
   const call = (channel: string, ...args: unknown[]) => handlers.get(channel)!({}, ...args);
@@ -35,10 +36,17 @@ describe('registerIpcHandlers', () => {
       checkHealth: vi.fn().mockResolvedValue({ dockerConnected: true, llmRunning: true }),
       queryAiHelper: vi.fn().mockResolvedValue('hint'),
     };
+    demoLab = {
+      restore: vi.fn().mockResolvedValue(null),
+      start: vi.fn().mockResolvedValue(49152),
+      stop: vi.fn().mockResolvedValue(undefined),
+      verifyFlag: vi.fn().mockImplementation((flag: string) => flag.trim() === 'PWNSHOP{demo_sqli_mastered_2026}'),
+      getRecentLogs: vi.fn().mockReturnValue(['POST /login rejected']),
+    };
     progress = new ProgressService(path.join(tmp, 'progress.json'));
     registerIpcHandlers(
       { handle: (channel: string, fn: Handler) => { handlers.set(channel, fn); } } as any,
-      { secgen, llm, progress, catalog: SCENARIO_CATALOG, scenariosDirectory: path.join(tmp, 'scn') },
+      { secgen, demoLab, llm, progress, catalog: SCENARIO_CATALOG, scenariosDirectory: path.join(tmp, 'scn') },
     );
   });
 
@@ -59,6 +67,40 @@ describe('registerIpcHandlers', () => {
     if (!res.ok) throw new Error(res.error);
     expect(res.data.scenarios).toHaveLength(SCENARIO_CATALOG.length);
     expect(res.data.lastScenarioId).toBeNull();
+    expect(res.data.scenarios[0]).toMatchObject({ id: 'demo-sqli-01', difficulty: 'Beginner', topic: 'SQL injection' });
+  });
+
+  it('launches the demo, locks other labs, verifies flags and supplies logs to the AI', async () => {
+    const demoId = 'demo-sqli-01';
+    expect(await call(IPC_CHANNELS.launchScenario, demoId)).toEqual({
+      ok: true, data: { scenarioId: demoId, host: '127.0.0.1', port: 49152, url: 'http://127.0.0.1:49152' },
+    });
+    expect(secgen.generateScenario).not.toHaveBeenCalled();
+    expect((await call(IPC_CHANNELS.launchScenario, id)).ok).toBe(false);
+    expect(await call(IPC_CHANNELS.getLabLogs, demoId)).toEqual({ ok: true, data: ['POST /login rejected'] });
+    expect(await call(IPC_CHANNELS.submitFlag, demoId, 'wrong')).toEqual({ ok: true, data: { correct: false } });
+    expect(await call(IPC_CHANNELS.submitFlag, demoId, 'PWNSHOP{demo_sqli_mastered_2026}')).toEqual({ ok: true, data: { correct: true } });
+    await call(IPC_CHANNELS.askAiHelper, { scenarioId: demoId, question: 'Why?', recentLogs: [] });
+    expect(llm.queryAiHelper).toHaveBeenCalledWith('Why?', SCENARIO_CATALOG[0].context, ['POST /login rejected']);
+    expect(await call(IPC_CHANNELS.stopScenario, demoId)).toEqual({ ok: true, data: undefined });
+    expect(demoLab.stop).toHaveBeenCalledOnce();
+    expect((await call(IPC_CHANNELS.getLabLogs, demoId)).ok).toBe(false);
+    expect((await call(IPC_CHANNELS.launchScenario, id)).ok).toBe(true);
+  });
+
+  it('recovers and cleans up both retained labs one at a time', async () => {
+    secgen.restoreProject.mockResolvedValue(id);
+    demoLab.restore.mockResolvedValue('demo-sqli-01');
+    registerIpcHandlers(
+      { handle: (channel: string, fn: Handler) => { handlers.set(channel, fn); } } as any,
+      { secgen, demoLab, llm, progress, catalog: SCENARIO_CATALOG, scenariosDirectory: tmp },
+    );
+    expect(await call(IPC_CHANNELS.listScenarios)).toMatchObject({ ok: true, data: { cleanupScenarioId: id } });
+    expect((await call(IPC_CHANNELS.stopScenario, id)).ok).toBe(true);
+    expect(await call(IPC_CHANNELS.listScenarios)).toMatchObject({ ok: true, data: { cleanupScenarioId: 'demo-sqli-01' } });
+    expect((await call(IPC_CHANNELS.launchScenario, id)).ok).toBe(false);
+    expect((await call(IPC_CHANNELS.stopScenario, 'demo-sqli-01')).ok).toBe(true);
+    expect((await call(IPC_CHANNELS.launchScenario, id)).ok).toBe(true);
   });
 
   it('launchScenario generates, starts, and returns a loopback URL', async () => {
@@ -74,9 +116,9 @@ describe('registerIpcHandlers', () => {
 
   it('rejects a second lab until the first is stopped', async () => {
     await call(IPC_CHANNELS.launchScenario, id);
-    expect((await call(IPC_CHANNELS.launchScenario, SCENARIO_CATALOG[1].context.id)).ok).toBe(false);
+    expect((await call(IPC_CHANNELS.launchScenario, SCENARIO_CATALOG[2].context.id)).ok).toBe(false);
     await call(IPC_CHANNELS.stopScenario, id);
-    expect((await call(IPC_CHANNELS.launchScenario, SCENARIO_CATALOG[1].context.id)).ok).toBe(true);
+    expect((await call(IPC_CHANNELS.launchScenario, SCENARIO_CATALOG[2].context.id)).ok).toBe(true);
     expect(secgen.stopTargetLab).toHaveBeenCalledTimes(1);
   });
 
@@ -120,7 +162,7 @@ describe('registerIpcHandlers', () => {
     secgen.restoreProject.mockResolvedValue(id);
     registerIpcHandlers(
       { handle: (channel: string, fn: Handler) => { handlers.set(channel, fn); } } as any,
-      { secgen, llm, progress, catalog: SCENARIO_CATALOG, scenariosDirectory: tmp },
+      { secgen, demoLab, llm, progress, catalog: SCENARIO_CATALOG, scenariosDirectory: tmp },
     );
     expect((await call(IPC_CHANNELS.launchScenario, id)).ok).toBe(false);
     expect(secgen.generateScenario).not.toHaveBeenCalled();
@@ -167,7 +209,7 @@ describe('registerIpcHandlers', () => {
     vi.useFakeTimers();
     try {
       const localLlm = { ...llm, checkHealth: vi.fn().mockResolvedValue({ dockerConnected: true, llmRunning: true }) };
-      registerIpcHandlers({ handle: vi.fn() } as any, { secgen, llm: localLlm, progress, catalog: SCENARIO_CATALOG, scenariosDirectory: tmp });
+      registerIpcHandlers({ handle: vi.fn() } as any, { secgen, demoLab, llm: localLlm, progress, catalog: SCENARIO_CATALOG, scenariosDirectory: tmp });
       await vi.advanceTimersByTimeAsync(299_999);
       expect(localLlm.checkHealth).not.toHaveBeenCalled();
       await vi.advanceTimersByTimeAsync(1);

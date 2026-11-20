@@ -25,6 +25,7 @@ describe('preload bridge', () => {
     await api.stopScenario('s');
     await api.submitFlag('s', 'f');
     await api.askAiHelper({ scenarioId: 's', question: 'q' });
+    await api.getLabLogs('s');
     await api.saveConfidenceRating('s', 3);
     expect(invoke.mock.calls).toEqual([
       [IPC_CHANNELS.getSystemHealth],
@@ -33,6 +34,7 @@ describe('preload bridge', () => {
       [IPC_CHANNELS.stopScenario, 's'],
       [IPC_CHANNELS.submitFlag, 's', 'f'],
       [IPC_CHANNELS.askAiHelper, { scenarioId: 's', question: 'q' }],
+      [IPC_CHANNELS.getLabLogs, 's'],
       [IPC_CHANNELS.saveConfidenceRating, 's', 3],
     ]);
     await expect(api.launchScenario('s')).resolves.toBe('result');

@@ -12,6 +12,7 @@ import {
 } from '../shared/ipcTypes';
 import type { CatalogEntry } from './scenarioCatalog';
 import type { DockerLlmService } from './services/dockerLlmService';
+import { DEMO_SCENARIO_ID, type DemoLabService } from './services/demoLabService';
 import type { ProgressService } from './services/progressService';
 import type { SecGenService } from './services/secgenService';
 
@@ -22,6 +23,7 @@ const MAX_LOG_LINES = 10;
 
 export interface IpcHandlerDependencies {
   secgen: Pick<SecGenService, 'restoreProject' | 'generateScenario' | 'startTargetLab' | 'stopTargetLab' | 'verifyFlag'>;
+  demoLab: Pick<DemoLabService, 'restore' | 'start' | 'stop' | 'verifyFlag' | 'getRecentLogs'>;
   llm: Pick<DockerLlmService, 'checkHealth' | 'queryAiHelper'>;
   progress: ProgressService;
   catalog: CatalogEntry[];
@@ -36,12 +38,17 @@ function requireString(value: unknown, name: string, maxLength: number): string 
 
 export function registerIpcHandlers(ipcMain: Pick<IpcMain, 'handle'>, deps: IpcHandlerDependencies): void {
   let activeScenarioId: string | null = null;
+  let pendingRecoveryId: string | null = null;
   let labBusy = false;
   let labReady = false;
-  const recovery = deps.secgen.restoreProject().then(
-    (id) => { activeScenarioId = id; return { ok: true as const }; },
+  const recovery = Promise.all([deps.secgen.restoreProject(), deps.demoLab.restore()]).then(
+    ([secgenId, demoId]) => {
+      activeScenarioId = secgenId ?? demoId;
+      pendingRecoveryId = secgenId && demoId ? demoId : null;
+      return { ok: true as const };
+    },
     (error: unknown) => ({ ok: false as const, error }),
-  );
+  ).catch((error: unknown) => ({ ok: false as const, error }));
   const awaitRecovery = async (): Promise<void> => {
     const result = await recovery;
     if (!result.ok) throw result.error;
@@ -109,20 +116,26 @@ export function registerIpcHandlers(ipcMain: Pick<IpcMain, 'handle'>, deps: IpcH
     labBusy = true;
     activeScenarioId = entry.context.id;
     try {
-      await deps.secgen.generateScenario(path.join(deps.scenariosDirectory, entry.scenarioFile), entry.context.id);
-      await deps.secgen.startTargetLab();
+      let port = entry.hostPort;
+      if (entry.context.id === DEMO_SCENARIO_ID) {
+        port = await deps.demoLab.start();
+      } else {
+        await deps.secgen.generateScenario(path.join(deps.scenariosDirectory, entry.scenarioFile), entry.context.id);
+        await deps.secgen.startTargetLab();
+      }
       labReady = true;
       deps.progress.markStarted(entry.context.id);
       return {
         scenarioId: entry.context.id,
         host: LOOPBACK,
-        port: entry.hostPort,
-        url: `http://${LOOPBACK}:${entry.hostPort}`,
+        port,
+        url: `http://${LOOPBACK}:${port}`,
       };
     } catch (error) {
       try {
-        await deps.secgen.stopTargetLab();
-        activeScenarioId = null;
+        if (entry.context.id === DEMO_SCENARIO_ID) await deps.demoLab.stop();
+        else await deps.secgen.stopTargetLab();
+          activeScenarioId = null;
         labReady = false;
       } catch (cleanupError) {
         labReady = false;
@@ -142,8 +155,10 @@ export function registerIpcHandlers(ipcMain: Pick<IpcMain, 'handle'>, deps: IpcH
     labBusy = true;
     labReady = false;
     try {
-      await deps.secgen.stopTargetLab();
-      activeScenarioId = null;
+      if (scenarioId === DEMO_SCENARIO_ID) await deps.demoLab.stop();
+      else await deps.secgen.stopTargetLab();
+      activeScenarioId = pendingRecoveryId;
+      pendingRecoveryId = null;
       labReady = false;
     } finally {
       labBusy = false;
@@ -154,10 +169,18 @@ export function registerIpcHandlers(ipcMain: Pick<IpcMain, 'handle'>, deps: IpcH
     const entry = findEntry(id);
     const submitted = requireString(flag, 'flag', MAX_FLAG_LENGTH);
     if (!labReady || activeScenarioId !== entry.context.id) throw new Error('Launch the lab before submitting a flag.');
-    const correct = deps.secgen.verifyFlag(submitted);
+    const correct = entry.context.id === DEMO_SCENARIO_ID
+      ? deps.demoLab.verifyFlag(submitted) : deps.secgen.verifyFlag(submitted);
     deps.progress.recordAttempt();
     if (correct) deps.progress.recordCompletion(entry.context.id);
     return { correct };
+  });
+
+  register<string[]>(IPC_CHANNELS.getLabLogs, async (id) => {
+    const entry = findEntry(id);
+    await awaitRecovery();
+    if (!labReady || activeScenarioId !== entry.context.id) throw new Error('That lab is not running.');
+    return entry.context.id === DEMO_SCENARIO_ID ? deps.demoLab.getRecentLogs() : [];
   });
 
   register<AiHelperResult>(IPC_CHANNELS.askAiHelper, async (rawPayload) => {
@@ -169,7 +192,9 @@ export function registerIpcHandlers(ipcMain: Pick<IpcMain, 'handle'>, deps: IpcH
       : [];
     const health = await checkHealth();
     if (!health.localAiReady) throw new Error(health.error ?? 'Docker Model Runner is unavailable.');
-    return { answer: await deps.llm.queryAiHelper(question, entry.context, logs) };
+    const containerLogs = entry.context.id === DEMO_SCENARIO_ID && labReady && activeScenarioId === entry.context.id
+      ? deps.demoLab.getRecentLogs() : [];
+    return { answer: await deps.llm.queryAiHelper(question, entry.context, [...logs, ...containerLogs].slice(-MAX_LOG_LINES)) };
   });
 
   register<void>(IPC_CHANNELS.saveConfidenceRating, (id, rating) => {

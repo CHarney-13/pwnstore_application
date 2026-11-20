@@ -20,6 +20,7 @@ export function makeApi(overrides: Partial<PwnshopApi> = {}): PwnshopApi {
     stopScenario: vi.fn().mockResolvedValue(undefined),
     submitFlag: vi.fn().mockResolvedValue({ correct: false }),
     askAiHelper: vi.fn().mockResolvedValue({ answer: 'Think about input handling.' }),
+    getLabLogs: vi.fn().mockResolvedValue([]),
     saveConfidenceRating: vi.fn().mockResolvedValue(undefined),
     ...overrides,
   };

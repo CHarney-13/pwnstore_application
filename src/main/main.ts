@@ -5,6 +5,7 @@ import { fileURLToPath } from 'node:url';
 import { registerIpcHandlers } from './ipcHandlers';
 import { SCENARIO_CATALOG } from './scenarioCatalog';
 import { DockerLlmService } from './services/dockerLlmService';
+import { DemoLabService } from './services/demoLabService';
 import { ProgressService } from './services/progressService';
 import { SecGenService } from './services/secgenService';
 
@@ -45,6 +46,7 @@ function setUpBackend(): void {
       projectsDirectory: path.join(app.getPath('userData'), 'projects'),
     }),
     llm: new DockerLlmService(),
+    demoLab: new DemoLabService({ statePath: path.join(app.getPath('userData'), 'demo-lab-active') }),
     progress: new ProgressService(path.join(app.getPath('userData'), 'progress.json')),
     catalog: SCENARIO_CATALOG,
     scenariosDirectory: process.env.PWNSHOP_SCENARIOS_DIR ?? path.join(secgenDirectory, 'scenarios', 'pwnshop'),

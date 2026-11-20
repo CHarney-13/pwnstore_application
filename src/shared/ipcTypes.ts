@@ -18,6 +18,7 @@ export const IPC_CHANNELS = {
   stopScenario: 'pwnshop:stop-scenario',
   submitFlag: 'pwnshop:submit-flag',
   askAiHelper: 'pwnshop:ask-ai-helper',
+  getLabLogs: 'pwnshop:get-lab-logs',
   saveConfidenceRating: 'pwnshop:save-confidence-rating',
 } as const;
 
@@ -73,6 +74,7 @@ export interface PwnshopApi {
   stopScenario(scenarioId: string): Promise<void>;
   submitFlag(scenarioId: string, flag: string): Promise<FlagResult>;
   askAiHelper(payload: AiHelperPayload): Promise<AiHelperResult>;
+  getLabLogs(scenarioId: string): Promise<string[]>;
   saveConfidenceRating(scenarioId: string, rating: number): Promise<void>;
 }
 

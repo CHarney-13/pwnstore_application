@@ -18,6 +18,7 @@ const api: PwnshopApi = {
   stopScenario: (scenarioId) => invoke(IPC_CHANNELS.stopScenario, scenarioId),
   submitFlag: (scenarioId, flag) => invoke(IPC_CHANNELS.submitFlag, scenarioId, flag),
   askAiHelper: (payload) => invoke(IPC_CHANNELS.askAiHelper, payload),
+  getLabLogs: (scenarioId) => invoke(IPC_CHANNELS.getLabLogs, scenarioId),
   saveConfidenceRating: (scenarioId, rating) =>
     invoke(IPC_CHANNELS.saveConfidenceRating, scenarioId, rating),
 };

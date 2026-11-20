@@ -24,6 +24,10 @@ The helper uses the loopback OpenAI-compatible endpoint and stays disabled until
 
 Only one lab can run at a time. Stop it before launching another. If provisioning fails and automatic VM cleanup also fails, use **Retry lab cleanup** in the catalog before launching another lab. The project reference is retained across application restarts so cleanup can be retried. Stopping a lab destroys its VM and removes its generated project.
 
+## Docker demo lab
+
+With Docker running, build the local demo image once using `npm run build:demo-lab`. Select **Demo: SQL Injection** at the top of the catalog to launch it without SecGen or Vagrant. Docker assigns a host port bound only to `127.0.0.1`; open the provided URL in a browser. The log drawer shows recent container requests and SQL errors, and the local AI helper receives recent logs and conceptual hints with the demo flag redacted. Stop the lab when finished. If the desktop app is restarted with the container present, use **Retry lab cleanup** before launching another lab. When a demo is awaiting recovery, Docker must be reachable to verify its state.
+
 ## SecGen setup and inisalisation
 
 run: `$env:SECGEN_DIR = (Resolve-Path .\SecGen\SecGen-master).Path` then `npm start`

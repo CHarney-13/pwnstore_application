@@ -9,7 +9,7 @@ test('opens the desktop renderer', async () => {
 
   try {
     const window = await electronApp.firstWindow();
-    await expect(window.getByRole('heading', { name: 'Pwnstore' })).toBeVisible();
+    await expect(window.getByRole('button', { name: 'PWNShop' })).toBeVisible();
   } finally {
     await electronApp.close();
   }

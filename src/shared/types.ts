@@ -16,15 +16,6 @@ export interface SecGenPrerequisiteStatus {
   errors: string[];
 }
 
-export interface DockerLlmStatus {
-  running: boolean;
-  image: string;
-  model: string;
-  baseUrl: string;
-  port: number;
-  containerId?: string;
-}
-
 export interface StudentProgress {
   completedActivities: number;
   totalAttempts: number;

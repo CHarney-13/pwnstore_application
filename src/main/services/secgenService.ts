@@ -1,5 +1,6 @@
 import { spawn } from 'node:child_process';
-import { access, readFile } from 'node:fs/promises';
+import { randomUUID } from 'node:crypto';
+import { access, mkdir, readFile, rename, rm, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import { XMLParser } from 'fast-xml-parser';
 import type {
@@ -171,6 +172,8 @@ export class SecGenService {
   private readonly now: () => Date;
   private currentProjectDirectory: string | null = null;
   private currentFlags = new Set<string>();
+  private vmDestroyed = true;
+  private currentScenarioId: string | null = null;
 
   constructor(options: SecGenServiceOptions) {
     this.platform = options.platform ?? process.platform;
@@ -207,20 +210,47 @@ export class SecGenService {
     return { valid: errors.length === 0, errors };
   }
 
-  async generateScenario(scenarioPath: string): Promise<SecGenScenario> {
-    const absoluteScenarioPath = path.resolve(scenarioPath);
-    const inputXml = await readFile(absoluteScenarioPath, 'utf8');
-    parseScenarioXml(inputXml);
+  async restoreProject(): Promise<string | null> {
+    let contents: string;
+    try {
+      contents = await readFile(path.join(this.projectsDirectory, '.pwnstore-active.json'), 'utf8');
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code === 'ENOENT') return null;
+      throw error;
+    }
+    const state: unknown = JSON.parse(contents);
+    if (!state || typeof state !== 'object' || !('scenarioId' in state) || typeof state.scenarioId !== 'string'
+      || !state.scenarioId || !('projectDirectory' in state) || typeof state.projectDirectory !== 'string'
+      || !('vmDestroyed' in state) || typeof state.vmDestroyed !== 'boolean'
+      || path.dirname(state.projectDirectory) !== this.projectsDirectory
+      || !/^SecGen_[a-z0-9-]+$/i.test(path.basename(state.projectDirectory))) {
+      throw new Error('Invalid saved lab state. Resolve the saved project state before launching another lab.');
+    }
+    this.currentProjectDirectory = state.projectDirectory;
+    this.currentScenarioId = state.scenarioId;
+    this.vmDestroyed = state.vmDestroyed;
+    return state.scenarioId;
+  }
 
+  async generateScenario(scenarioPath: string, scenarioId: string): Promise<SecGenScenario> {
+    if (this.currentProjectDirectory) throw new Error('Clean up the previous lab before generating another.');
+    const absoluteScenarioPath = path.resolve(scenarioPath);
     const timestamp = this.now().toISOString();
     const projectDirectory = getSecGenProjectPath(
       this.projectsDirectory,
-      timestamp,
+      `${timestamp}-${randomUUID()}`,
       this.platform,
     );
     const outputXmlPath = path.join(projectDirectory, 'scenario.xml');
     const flagsPath = path.join(projectDirectory, 'flag_hints.xml');
 
+    this.currentProjectDirectory = projectDirectory;
+    this.currentScenarioId = scenarioId;
+    this.currentFlags.clear();
+    this.vmDestroyed = true;
+    await this.saveProjectState();
+    const inputXml = await readFile(absoluteScenarioPath, 'utf8');
+    parseScenarioXml(inputXml);
     await runCommand(
       this.rubyCommand,
       [
@@ -242,7 +272,6 @@ export class SecGenService {
     const flags = new Set<string>();
     extractFlagValues(parsedHints, flags);
 
-    this.currentProjectDirectory = projectDirectory;
     this.currentFlags = flags;
     return {
       ...scenario,
@@ -255,12 +284,39 @@ export class SecGenService {
     const projectDirectory = this.requireCurrentProject();
     const vagrantfile = await readFile(path.join(projectDirectory, 'Vagrantfile'), 'utf8');
     assertContainedVagrantfile(vagrantfile);
+    this.vmDestroyed = false;
+    await this.saveProjectState();
     await runCommand(this.vagrantCommand, ['up'], { cwd: projectDirectory });
   }
 
   async stopTargetLab(): Promise<void> {
     const projectDirectory = this.requireCurrentProject();
-    await runCommand(this.vagrantCommand, ['halt'], { cwd: projectDirectory });
+    if (!this.vmDestroyed) {
+      await runCommand(this.vagrantCommand, ['destroy', '-f'], { cwd: projectDirectory });
+      this.vmDestroyed = true;
+    }
+    await this.saveProjectState();
+    await rm(projectDirectory, { recursive: true, force: true });
+    await rm(path.join(this.projectsDirectory, '.pwnstore-active.json'), { force: true });
+    this.currentProjectDirectory = null;
+    this.currentScenarioId = null;
+    this.currentFlags.clear();
+  }
+
+  private async saveProjectState(): Promise<void> {
+    await mkdir(this.projectsDirectory, { recursive: true });
+    const statePath = path.join(this.projectsDirectory, '.pwnstore-active.json');
+    const temporaryPath = `${statePath}.${randomUUID()}.tmp`;
+    try {
+      await writeFile(temporaryPath, JSON.stringify({
+        scenarioId: this.currentScenarioId,
+        projectDirectory: this.currentProjectDirectory,
+        vmDestroyed: this.vmDestroyed,
+      }), 'utf8');
+      await rename(temporaryPath, statePath);
+    } finally {
+      await rm(temporaryPath, { force: true });
+    }
   }
 
   verifyFlag(submittedFlag: string): boolean {

@@ -1,38 +1,15 @@
 import { describe, expect, it, vi } from 'vitest';
-import type Docker from 'dockerode';
 import { DockerLlmService } from '../../src/main/services/dockerLlmService';
 
-describe('Docker LLM service integration', () => {
-  it('checks daemon connectivity and passes loopback-only ports to container creation', async () => {
-    const containerStart = vi.fn().mockResolvedValue(undefined);
-    const docker = {
-      ping: vi.fn().mockResolvedValue('OK'),
-      listImages: vi.fn().mockResolvedValue([{ Id: 'ollama-image' }]),
-      pull: vi.fn(),
-      listVolumes: vi.fn().mockResolvedValue({
-        Volumes: [{ Name: 'pwnstore-ollama-data' }],
-      }),
-      createVolume: vi.fn(),
-      listContainers: vi.fn().mockResolvedValue([]),
-      createContainer: vi.fn().mockResolvedValue({
-        id: 'ollama-container',
-        start: containerStart,
-      }),
-      getContainer: vi.fn(),
-    };
-    const service = new DockerLlmService({ docker: docker as unknown as Docker });
-
-    const health = await service.ensureLlmContainerRunning();
-
-    expect(docker.ping).toHaveBeenCalledOnce();
-    expect(docker.createContainer).toHaveBeenCalledWith(expect.objectContaining({
-      HostConfig: expect.objectContaining({
-        PortBindings: {
-          '11434/tcp': [{ HostIp: '127.0.0.1', HostPort: '11434' }],
-        },
-      }),
-    }));
-    expect(containerStart).toHaveBeenCalledOnce();
-    expect(health.running).toBe(true);
+describe('Docker Model Runner integration boundary', () => {
+  it('uses the installed model for OpenAI chat', async () => {
+    const command = vi.fn(async (args: string[]) => args[1] === 'list'
+      ? JSON.stringify({ data: [{ id: 'hf.co/Qwen/Qwen2.5-Coder-1.5B-Instruct-GGUF' }] })
+      : 'running');
+    const fetchImpl = vi.fn(async (_url: string, init?: RequestInit) =>
+      new Response(JSON.stringify(init?.method === 'POST' ? { choices: [{ message: { content: 'hint' } }] } : {})));
+    const service = new DockerLlmService({ command, fetchImpl, docker: { ping: vi.fn().mockResolvedValue('OK') } });
+    expect((await service.checkHealth()).llmRunning).toBe(true);
+    expect(await service.queryAiHelper('Help', { id: 's', name: 'lab', description: '', vulnerabilities: [], services: [] })).toBe('hint');
   });
 });

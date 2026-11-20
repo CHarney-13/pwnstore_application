@@ -7,8 +7,8 @@ export default defineConfig({
     emptyOutDir: false,
     rollupOptions: {
       input: {
-        main: 'src/main/index.ts',
-        preload: 'src/main/preload.ts',
+        main: 'src/main/main.ts',
+        preload: 'src/preload.ts',
       },
       external: ['electron'],
       output: {

@@ -36,7 +36,7 @@ export function TopBar({ health, onHome }: TopBarProps): React.JSX.Element {
         />
         <StatusPill
           ok={health?.localAiReady ?? false}
-          label={`Local AI: ${health?.localAiReady ? 'Ready' : 'Starting'}`}
+          label={`Local AI: ${health?.localAiReady ? 'Ready' : health ? 'Unavailable' : 'Checking'}`}
         />
       </div>
     </header>

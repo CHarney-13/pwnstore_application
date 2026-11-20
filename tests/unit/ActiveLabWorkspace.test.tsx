@@ -6,8 +6,9 @@ import { makeApi, scenarios } from './helpers';
 
 const launch = { scenarioId: 'sqli-1', host: '127.0.0.1' as const, port: 18081, url: 'http://127.0.0.1:18081' };
 
-function setup(onExit = vi.fn()) {
-  render(<ActiveLabWorkspace scenario={scenarios[0]} launch={launch} onExit={onExit} />);
+function setup(onExit = vi.fn(), ready = true, onRefreshHealth = vi.fn().mockResolvedValue(undefined)) {
+  render(<ActiveLabWorkspace scenario={scenarios[0]} launch={launch} onExit={onExit}
+    health={{ dockerConnected: true, localAiReady: ready }} onRefreshHealth={onRefreshHealth} />);
   return { user: userEvent.setup(), onExit };
 }
 
@@ -60,6 +61,17 @@ describe('ActiveLabWorkspace', () => {
     const { user } = setup();
     await user.click(screen.getByRole('button', { name: 'Why did my last attempt fail?' }));
     expect(await screen.findByText(/AI helper is unavailable: offline/)).toBeInTheDocument();
+  });
+
+  it('disables AI controls when unavailable and permits an on-demand health check', async () => {
+    const refresh = vi.fn().mockResolvedValue(undefined);
+    const { user } = setup(vi.fn(), false, refresh);
+    expect(screen.getByText(/No local AI model/)).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Send' })).toBeDisabled();
+    expect(screen.getByLabelText('Ask the AI helper')).toBeDisabled();
+    expect(screen.getByRole('button', { name: 'Explain this vulnerability' })).toBeDisabled();
+    await user.click(screen.getByRole('button', { name: 'Check AI helper availability' }));
+    expect(refresh).toHaveBeenCalledTimes(1);
   });
 
   it('toggles the log drawer', async () => {

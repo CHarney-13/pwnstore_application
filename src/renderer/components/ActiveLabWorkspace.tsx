@@ -1,11 +1,13 @@
 import React, { useState } from 'react';
-import type { LaunchResult, ScenarioSummary } from '../../shared/ipcTypes';
+import type { LaunchResult, ScenarioSummary, SystemHealth } from '../../shared/ipcTypes';
 import { ConfidenceModal } from './ConfidenceModal';
 
 interface ActiveLabWorkspaceProps {
   scenario: ScenarioSummary;
   launch: LaunchResult;
   onExit: () => void;
+  health: SystemHealth | null;
+  onRefreshHealth: () => Promise<void>;
 }
 
 interface ChatMessage {
@@ -19,7 +21,7 @@ function errorMessage(e: unknown): string {
   return e instanceof Error ? e.message : String(e);
 }
 
-export function ActiveLabWorkspace({ scenario, launch, onExit }: ActiveLabWorkspaceProps): React.JSX.Element {
+export function ActiveLabWorkspace({ scenario, launch, onExit, health, onRefreshHealth }: ActiveLabWorkspaceProps): React.JSX.Element {
   const api = window.pwnshopApi;
   const [flag, setFlag] = useState('');
   const [feedback, setFeedback] = useState<{ ok: boolean; text: string } | null>(null);
@@ -52,7 +54,7 @@ export function ActiveLabWorkspace({ scenario, launch, onExit }: ActiveLabWorksp
 
   async function ask(text: string): Promise<void> {
     const trimmed = text.trim();
-    if (!trimmed || asking) return;
+    if (!trimmed || asking || !health?.localAiReady) return;
     setMessages((prev) => [...prev, { role: 'student', text: trimmed }]);
     setQuestion('');
     setAsking(true);
@@ -65,6 +67,7 @@ export function ActiveLabWorkspace({ scenario, launch, onExit }: ActiveLabWorksp
       setMessages((prev) => [...prev, { role: 'ai', text: answer }]);
     } catch (e) {
       setMessages((prev) => [...prev, { role: 'ai', text: `Sorry, the AI helper is unavailable: ${errorMessage(e)}` }]);
+      await onRefreshHealth();
     } finally {
       setAsking(false);
     }
@@ -145,7 +148,15 @@ export function ActiveLabWorkspace({ scenario, launch, onExit }: ActiveLabWorksp
       </section>
 
       <section className="flex min-h-0 flex-col rounded-2xl border border-brand-lavender bg-surface-subtle p-5">
-        <p className="eyebrow">AI diagnostic helper</p>
+        <div className="flex items-center justify-between">
+          <p className="eyebrow">AI diagnostic helper</p>
+          <button type="button" className="btn-secondary" aria-label="Check AI helper availability" onClick={() => void onRefreshHealth()}>↻ Check AI</button>
+        </div>
+        {!health?.localAiReady && (
+          <p role="status" className="mt-2 text-sm text-amber-800">
+            {health?.error ?? 'No local AI model is currently available. Enable Docker Model Runner and install the required model.'}
+          </p>
+        )}
         <div className="my-3 flex-1 space-y-3 overflow-auto" aria-live="polite">
           {messages.map((m, i) => (
             <div
@@ -163,7 +174,7 @@ export function ActiveLabWorkspace({ scenario, launch, onExit }: ActiveLabWorksp
         </div>
         <div className="mb-2 flex flex-wrap gap-2">
           {QUICK_PROMPTS.map((prompt) => (
-            <button key={prompt} type="button" className="pill" disabled={asking} onClick={() => void ask(prompt)}>
+            <button key={prompt} type="button" className="pill disabled:opacity-50" disabled={asking || !health?.localAiReady} onClick={() => void ask(prompt)}>
               {prompt}
             </button>
           ))}
@@ -176,9 +187,10 @@ export function ActiveLabWorkspace({ scenario, launch, onExit }: ActiveLabWorksp
             aria-label="Ask the AI helper"
             value={question}
             onChange={(e) => setQuestion(e.target.value)}
-            className="flex-1 rounded-lg border border-ink-muted/30 px-3 py-2 text-sm"
+            disabled={asking || !health?.localAiReady}
+            className="flex-1 rounded-lg border border-ink-muted/30 px-3 py-2 text-sm disabled:opacity-50"
           />
-          <button type="submit" className="btn-primary" disabled={asking}>Send</button>
+          <button type="submit" className="btn-primary" disabled={asking || !health?.localAiReady}>Send</button>
         </form>
       </section>
 

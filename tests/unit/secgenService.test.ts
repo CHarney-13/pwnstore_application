@@ -89,7 +89,7 @@ describe('SecGenService', () => {
       now: () => new Date('2026-01-02T03:04:05.000Z'),
     });
 
-    const scenario = await service.generateScenario(scenarioPath);
+    const scenario = await service.generateScenario(scenarioPath, 'scenario-id');
 
     expect(scenario.name).toBe('Intro to SQL Injection');
     expect(scenario.vulnerabilities).toEqual(['SQL injection']);
@@ -106,7 +106,7 @@ describe('SecGenService', () => {
 
   it('starts and stops only a lab whose forwarded ports are loopback-bound', async () => {
     const service = new SecGenService({ secgenDirectory });
-    const scenario = await service.generateScenario(scenarioPath);
+    const scenario = await service.generateScenario(scenarioPath, 'scenario-id');
 
     await service.startTargetLab();
     await service.stopTargetLab();
@@ -118,14 +118,16 @@ describe('SecGenService', () => {
     );
     expect(spawnMock).toHaveBeenCalledWith(
       'vagrant',
-      ['halt'],
+      ['destroy', '-f'],
       expect.objectContaining({ cwd: scenario.projectDirectory }),
     );
+    expect(service.verifyFlag('FLAG{fixture-only-secret}')).toBe(false);
+    await expect(readFile(path.join(scenario.projectDirectory, 'scenario.xml'))).rejects.toThrow();
   });
 
   it('rejects a generated Vagrantfile that exposes a forwarded port to the LAN', async () => {
     const service = new SecGenService({ secgenDirectory });
-    const scenario = await service.generateScenario(scenarioPath);
+    const scenario = await service.generateScenario(scenarioPath, 'scenario-id');
     await writeFile(
       path.join(scenario.projectDirectory, 'Vagrantfile'),
       'config.vm.network "forwarded_port", guest: 80, host: 8080',
@@ -135,10 +137,45 @@ describe('SecGenService', () => {
     expect(spawnMock).toHaveBeenCalledTimes(1);
   });
 
+  it('retains the project after failed provisioning and failed destroy until cleanup succeeds', async () => {
+    const service = new SecGenService({ secgenDirectory });
+    const scenario = await service.generateScenario(scenarioPath, 'scenario-id');
+    let destroyFails = true;
+    spawnMock.mockImplementation((_command: string, args: string[]) => {
+      const child = new EventEmitter() as EventEmitter & { stderr: PassThrough };
+      child.stderr = new PassThrough();
+      queueMicrotask(() => child.emit('close', args[0] === 'up' || (args[0] === 'destroy' && destroyFails) ? 1 : 0));
+      return child;
+    });
+    await expect(service.startTargetLab()).rejects.toThrow('exited with code 1');
+    await expect(service.stopTargetLab()).rejects.toThrow('exited with code 1');
+    await expect(service.generateScenario(scenarioPath, 'scenario-id')).rejects.toThrow('Clean up the previous lab');
+    expect(service.verifyFlag('FLAG{fixture-only-secret}')).toBe(true);
+    const restored = new SecGenService({ secgenDirectory });
+    expect(await restored.restoreProject()).toBe('scenario-id');
+    await expect(restored.generateScenario(scenarioPath, 'other')).rejects.toThrow('Clean up the previous lab');
+    destroyFails = false;
+    await restored.stopTargetLab();
+    expect(await new SecGenService({ secgenDirectory }).restoreProject()).toBeNull();
+    await expect(readFile(path.join(scenario.projectDirectory, 'scenario.xml'))).rejects.toThrow();
+    expect(spawnMock).toHaveBeenLastCalledWith('vagrant', ['destroy', '-f'], expect.objectContaining({ cwd: scenario.projectDirectory }));
+  });
+
   it('uses platform-appropriate project path separators', () => {
     expect(getSecGenProjectPath('C:\\labs\\projects', '2026-01-02T03:04:05.000Z', 'win32'))
       .toBe('C:\\labs\\projects\\SecGen_2026-01-02T03-04-05-000Z');
     expect(getSecGenProjectPath('/labs/projects', '2026-01-02T03:04:05.000Z', 'linux'))
       .toBe('/labs/projects/SecGen_2026-01-02T03-04-05-000Z');
+  });
+
+  it('rejects saved cleanup state pointing outside the projects directory', async () => {
+    const projectsDirectory = path.join(secgenDirectory, 'projects');
+    await mkdir(projectsDirectory, { recursive: true });
+    await writeFile(path.join(projectsDirectory, '.pwnstore-active.json'), JSON.stringify({
+      scenarioId: 's',
+      projectDirectory: path.join(temporaryDirectory, 'SecGen_other'),
+      vmDestroyed: false,
+    }));
+    await expect(new SecGenService({ secgenDirectory }).restoreProject()).rejects.toThrow('Invalid saved lab state');
   });
 });

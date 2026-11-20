@@ -25,6 +25,7 @@ describe('registerIpcHandlers', () => {
     tmp = mkdtempSync(path.join(os.tmpdir(), 'pwnshop-'));
     handlers = new Map();
     secgen = {
+      restoreProject: vi.fn().mockResolvedValue(null),
       generateScenario: vi.fn().mockResolvedValue({}),
       startTargetLab: vi.fn().mockResolvedValue(undefined),
       stopTargetLab: vi.fn().mockResolvedValue(undefined),
@@ -32,7 +33,6 @@ describe('registerIpcHandlers', () => {
     };
     llm = {
       checkHealth: vi.fn().mockResolvedValue({ dockerConnected: true, llmRunning: true }),
-      ensureLlmContainerRunning: vi.fn().mockResolvedValue({}),
       queryAiHelper: vi.fn().mockResolvedValue('hint'),
     };
     progress = new ProgressService(path.join(tmp, 'progress.json'));
@@ -50,7 +50,7 @@ describe('registerIpcHandlers', () => {
 
   it('getSystemHealth maps llm health', async () => {
     expect(await call(IPC_CHANNELS.getSystemHealth)).toEqual({
-      ok: true, data: { dockerConnected: true, localAiReady: true },
+      ok: true, data: { dockerConnected: true, localAiReady: true, runnerRunning: undefined, modelAvailable: undefined, error: undefined },
     });
   });
 
@@ -63,7 +63,7 @@ describe('registerIpcHandlers', () => {
 
   it('launchScenario generates, starts, and returns a loopback URL', async () => {
     const res = await call(IPC_CHANNELS.launchScenario, id);
-    expect(secgen.generateScenario).toHaveBeenCalledWith(path.join(tmp, 'scn', first.scenarioFile));
+    expect(secgen.generateScenario).toHaveBeenCalledWith(path.join(tmp, 'scn', first.scenarioFile), id);
     expect(secgen.startTargetLab).toHaveBeenCalled();
     expect(res).toEqual({
       ok: true,
@@ -72,10 +72,60 @@ describe('registerIpcHandlers', () => {
     expect(progress.getLastScenarioId()).toBe(id);
   });
 
-  it('launchScenario stops a previously running lab first', async () => {
+  it('rejects a second lab until the first is stopped', async () => {
     await call(IPC_CHANNELS.launchScenario, id);
-    await call(IPC_CHANNELS.launchScenario, SCENARIO_CATALOG[1].context.id);
+    expect((await call(IPC_CHANNELS.launchScenario, SCENARIO_CATALOG[1].context.id)).ok).toBe(false);
+    await call(IPC_CHANNELS.stopScenario, id);
+    expect((await call(IPC_CHANNELS.launchScenario, SCENARIO_CATALOG[1].context.id)).ok).toBe(true);
     expect(secgen.stopTargetLab).toHaveBeenCalledTimes(1);
+  });
+
+  it('rejects concurrent launches while generation is pending', async () => {
+    let finish!: () => void;
+    secgen.generateScenario.mockImplementationOnce(() => new Promise<void>((resolve) => { finish = resolve; }));
+    const firstLaunch = call(IPC_CHANNELS.launchScenario, id);
+    expect((await call(IPC_CHANNELS.launchScenario, id)).ok).toBe(false);
+    expect(secgen.generateScenario).toHaveBeenCalledTimes(1);
+    finish();
+    expect((await firstLaunch).ok).toBe(true);
+  });
+
+  it('cleans failed provisioning and permits a later launch', async () => {
+    secgen.startTargetLab.mockRejectedValueOnce(new Error('provision failed'));
+    expect((await call(IPC_CHANNELS.launchScenario, id)).ok).toBe(false);
+    expect(secgen.stopTargetLab).toHaveBeenCalledTimes(1);
+    expect((await call(IPC_CHANNELS.launchScenario, id)).ok).toBe(true);
+  });
+
+  it('cleans a partially generated project when generation fails', async () => {
+    secgen.generateScenario.mockRejectedValueOnce(new Error('generation failed'));
+    expect(await call(IPC_CHANNELS.launchScenario, id)).toMatchObject({ ok: false, error: 'generation failed' });
+    expect(secgen.stopTargetLab).toHaveBeenCalledOnce();
+    expect((await call(IPC_CHANNELS.launchScenario, id)).ok).toBe(true);
+  });
+
+  it('retains the failed project until cleanup can be retried', async () => {
+    secgen.startTargetLab.mockRejectedValueOnce(new Error('provision failed'));
+    secgen.stopTargetLab.mockRejectedValueOnce(new Error('destroy failed'));
+    expect(await call(IPC_CHANNELS.launchScenario, id)).toMatchObject({ ok: false, error: expect.stringContaining('Cleanup failed') });
+    expect((await call(IPC_CHANNELS.launchScenario, id)).ok).toBe(false);
+    expect(secgen.generateScenario).toHaveBeenCalledTimes(1);
+    const catalog = await call(IPC_CHANNELS.listScenarios);
+    expect(catalog.ok && catalog.data.cleanupScenarioId).toBe(id);
+    expect((await call(IPC_CHANNELS.stopScenario, id)).ok).toBe(true);
+    expect((await call(IPC_CHANNELS.launchScenario, id)).ok).toBe(true);
+  });
+
+  it('blocks launches and permits cleanup of a project restored after restart', async () => {
+    secgen.restoreProject.mockResolvedValue(id);
+    registerIpcHandlers(
+      { handle: (channel: string, fn: Handler) => { handlers.set(channel, fn); } } as any,
+      { secgen, llm, progress, catalog: SCENARIO_CATALOG, scenariosDirectory: tmp },
+    );
+    expect((await call(IPC_CHANNELS.launchScenario, id)).ok).toBe(false);
+    expect(secgen.generateScenario).not.toHaveBeenCalled();
+    expect((await call(IPC_CHANNELS.stopScenario, id)).ok).toBe(true);
+    expect((await call(IPC_CHANNELS.launchScenario, id)).ok).toBe(true);
   });
 
   it('returns errors instead of throwing', async () => {
@@ -105,12 +155,28 @@ describe('registerIpcHandlers', () => {
     expect((await call(IPC_CHANNELS.submitFlag, id, 'a'.repeat(600))).ok).toBe(false);
   });
 
-  it('askAiHelper ensures the LLM once and passes scenario context without flags', async () => {
+  it('askAiHelper checks health on every request and passes scenario context without flags', async () => {
     const payload = { scenarioId: id, question: 'help?', recentLogs: ['a', 5, 'b'] };
     expect(await call(IPC_CHANNELS.askAiHelper, payload)).toEqual({ ok: true, data: { answer: 'hint' } });
     await call(IPC_CHANNELS.askAiHelper, payload);
-    expect(llm.ensureLlmContainerRunning).toHaveBeenCalledTimes(1);
+    expect(llm.checkHealth).toHaveBeenCalledTimes(2);
     expect(llm.queryAiHelper).toHaveBeenCalledWith('help?', first.context, ['a', 'b']);
+  });
+
+  it('runs background health checks every five minutes', async () => {
+    vi.useFakeTimers();
+    try {
+      const localLlm = { ...llm, checkHealth: vi.fn().mockResolvedValue({ dockerConnected: true, llmRunning: true }) };
+      registerIpcHandlers({ handle: vi.fn() } as any, { secgen, llm: localLlm, progress, catalog: SCENARIO_CATALOG, scenariosDirectory: tmp });
+      await vi.advanceTimersByTimeAsync(299_999);
+      expect(localLlm.checkHealth).not.toHaveBeenCalled();
+      await vi.advanceTimersByTimeAsync(1);
+      expect(localLlm.checkHealth).toHaveBeenCalledTimes(1);
+      await vi.advanceTimersByTimeAsync(300_000);
+      expect(localLlm.checkHealth).toHaveBeenCalledTimes(2);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it('askAiHelper surfaces LLM errors and rejects bad payloads', async () => {
@@ -118,6 +184,12 @@ describe('registerIpcHandlers', () => {
     expect(await call(IPC_CHANNELS.askAiHelper, { scenarioId: id, question: 'q' })).toEqual({ ok: false, error: 'llm down' });
     expect((await call(IPC_CHANNELS.askAiHelper, null)).ok).toBe(false);
     expect((await call(IPC_CHANNELS.askAiHelper, { scenarioId: id, question: '  ' })).ok).toBe(false);
+  });
+
+  it('refuses AI requests if the on-demand check fails', async () => {
+    llm.checkHealth.mockResolvedValueOnce({ dockerConnected: true, llmRunning: false, modelAvailable: false, error: 'model missing' });
+    expect(await call(IPC_CHANNELS.askAiHelper, { scenarioId: id, question: 'help' })).toEqual({ ok: false, error: 'model missing' });
+    expect(llm.queryAiHelper).not.toHaveBeenCalled();
   });
 
   it('saveConfidenceRating validates and persists 1-5', async () => {

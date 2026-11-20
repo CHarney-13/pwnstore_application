@@ -12,7 +12,7 @@ describe('App', () => {
   it('shows live health pills and the catalog', async () => {
     render(<App />);
     expect(await screen.findByText('Docker: Connected')).toBeInTheDocument();
-    expect(screen.getByText('Local AI: Starting')).toBeInTheDocument();
+    expect(screen.getByText('Local AI: Unavailable')).toBeInTheDocument();
     expect(await screen.findByText(scenarios[0].title)).toBeInTheDocument();
   });
 

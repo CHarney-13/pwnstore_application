@@ -52,4 +52,38 @@ describe('LabCatalog', () => {
     await user.click(await screen.findByRole('button', { name: /Launch Lab: Login Bypass/ }));
     expect(await screen.findByRole('alert')).toHaveTextContent('vagrant missing');
   });
+
+  it('lets the user retry retained cleanup and blocks launches until it succeeds', async () => {
+    window.pwnshopApi = makeApi({
+      launchScenario: vi.fn().mockRejectedValue(new Error('Launch failed. Cleanup failed: destroy failed')),
+      stopScenario: vi.fn().mockRejectedValueOnce(new Error('still failed')).mockResolvedValueOnce(undefined),
+    });
+
+    const user = userEvent.setup();
+    render(<LabCatalog onLaunched={vi.fn()} />);
+    const launch = await screen.findByRole('button', { name: /Launch Lab: Login Bypass/ });
+    await user.click(launch);
+    expect(launch).toBeDisabled();
+    await user.click(screen.getByRole('button', { name: 'Retry lab cleanup' }));
+    expect(await screen.findByRole('alert')).toHaveTextContent('still failed');
+    expect(launch).toBeDisabled();
+    await user.click(screen.getByRole('button', { name: 'Retry lab cleanup' }));
+    await waitFor(() => expect(launch).toBeEnabled());
+    expect(window.pwnshopApi.stopScenario).toHaveBeenLastCalledWith('sqli-1');
+  });
+
+  it('restores a pending cleanup after the catalog remounts', async () => {
+    const api = makeApi();
+    api.listScenarios = vi.fn().mockResolvedValue({
+      scenarios,
+      progress: { completedActivities: 0, totalAttempts: 0, averageConfidence: null, lowConfidenceCategories: [] },
+      lastScenarioId: null,
+      cleanupScenarioId: 'sqli-1',
+    });
+    window.pwnshopApi = api;
+    const user = userEvent.setup();
+    render(<LabCatalog onLaunched={vi.fn()} />);
+    await user.click(await screen.findByRole('button', { name: 'Retry lab cleanup' }));
+    expect(api.stopScenario).toHaveBeenCalledWith('sqli-1');
+  });
 });

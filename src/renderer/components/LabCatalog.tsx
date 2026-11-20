@@ -17,11 +17,17 @@ export function LabCatalog({ onLaunched }: LabCatalogProps): React.JSX.Element {
   const [filter, setFilter] = useState<(typeof FILTERS)[number]>('All');
   const [error, setError] = useState<string | null>(null);
   const [launching, setLaunching] = useState<string | null>(null);
+  const [cleanupId, setCleanupId] = useState<string | null>(null);
 
   useEffect(() => {
     let cancelled = false;
     window.pwnshopApi.listScenarios().then(
-      (result) => { if (!cancelled) setData(result); },
+      (result) => {
+        if (!cancelled) {
+          setData(result);
+          if (result.cleanupScenarioId) setCleanupId(result.cleanupScenarioId);
+        }
+      },
       (e: unknown) => { if (!cancelled) setError(e instanceof Error ? e.message : String(e)); },
     );
     return () => { cancelled = true; };
@@ -37,6 +43,22 @@ export function LabCatalog({ onLaunched }: LabCatalogProps): React.JSX.Element {
     setLaunching(scenario.id);
     try {
       onLaunched(scenario, await window.pwnshopApi.launchScenario(scenario.id));
+    } catch (e) {
+      const message = e instanceof Error ? e.message : String(e);
+      setError(message);
+      if (message.includes('Cleanup failed:')) setCleanupId(scenario.id);
+    } finally {
+      setLaunching(null);
+    }
+  }
+
+  async function retryCleanup(): Promise<void> {
+    if (!cleanupId || launching) return;
+    setLaunching(cleanupId);
+    try {
+      await window.pwnshopApi.stopScenario(cleanupId);
+      setCleanupId(null);
+      setError(null);
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
     } finally {
@@ -67,7 +89,7 @@ export function LabCatalog({ onLaunched }: LabCatalogProps): React.JSX.Element {
         </div>
         <button
           type="button"
-          disabled={!lastScenario || launching !== null}
+          disabled={!lastScenario || launching !== null || cleanupId !== null}
           onClick={() => lastScenario && void launch(lastScenario)}
           className="rounded-lg bg-white px-4 py-2 text-sm font-semibold text-brand-purple transition-colors hover:bg-brand-lavender disabled:opacity-50"
         >
@@ -77,6 +99,12 @@ export function LabCatalog({ onLaunched }: LabCatalogProps): React.JSX.Element {
 
       {error && (
         <p role="alert" className="rounded-lg bg-red-50 px-4 py-2 text-sm text-red-700">{error}</p>
+      )}
+      {cleanupId && (
+        <div>
+          <p className="text-sm text-red-700">A previous lab needs cleanup before another can be launched.</p>
+          <button type="button" className="btn-secondary" disabled={launching !== null} onClick={() => void retryCleanup()}>Retry lab cleanup</button>
+        </div>
       )}
 
       <div role="group" aria-label="Filter by vulnerability" className="flex flex-wrap gap-2">
@@ -112,7 +140,7 @@ export function LabCatalog({ onLaunched }: LabCatalogProps): React.JSX.Element {
             <button
               type="button"
               className="btn-primary mt-auto"
-              disabled={launching !== null}
+              disabled={launching !== null || cleanupId !== null}
               aria-label={`Launch Lab: ${scenario.title}`}
               onClick={() => void launch(scenario)}
             >

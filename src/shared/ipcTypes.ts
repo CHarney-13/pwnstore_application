@@ -24,6 +24,9 @@ export const IPC_CHANNELS = {
 export interface SystemHealth {
   dockerConnected: boolean;
   localAiReady: boolean;
+  runnerRunning?: boolean;
+  modelAvailable?: boolean;
+  error?: string;
 }
 
 export interface ScenarioSummary {
@@ -39,6 +42,7 @@ export interface ListScenariosResult {
   scenarios: ScenarioSummary[];
   progress: StudentProgress;
   lastScenarioId: string | null;
+  cleanupScenarioId?: string | null;
 }
 
 export interface LaunchResult {
